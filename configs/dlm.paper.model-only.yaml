@@ -1,0 +1,78 @@
+speech_vocab_size: 1024
+ctc_vocab_size: 198 # <actual_vocab_size> + 2 (blank and unk)
+input_speech_embed_dim: 768
+lm_input_dim: 768
+lm_output_dim: 768
+
+lcs_input_size: !apply:operator.add
+    - !ref <input_speech_embed_dim>
+    - !ref <lm_input_dim>
+
+dp_input_size: !apply:operator.add
+    - !ref <input_speech_embed_dim>
+    - !ref <lm_input_dim>
+
+# model params
+lm: !new:dlm_an.model.dlm.dlm.TransformerLM
+    lm_input_dim: !ref <lm_input_dim>
+    lm_output_dim: !ref <lm_output_dim>
+    speech_vocab_size: !ref <speech_vocab_size>
+    speech_embed_dim: !ref <input_speech_embed_dim>
+    ctc_vocab_size: !ref <ctc_vocab_size>
+    ctc_target_key: "phone_token"
+    ctc_loss_weight: 0.2
+    lcs_loss_weight: 1.0
+    lcs_pos_weight: 2.0
+    dp_loss_weight: 1.0
+    cfg_ratio: 0.3
+    token_encoder: !new:dlm_an.transformer.encoder.ConformerEncoder
+        input_size: !ref <input_speech_embed_dim>
+        output_size: 768
+        attention_heads: 12
+        linear_units: 3072
+        num_blocks: 8
+        dropout_rate: 0.1
+        positional_dropout_rate: 0.1
+        attention_dropout_rate: 0.0
+        normalize_before: True
+        input_layer: 'linear'
+        pos_enc_layer_type: 'rel_pos_espnet'
+        selfattention_layer_type: 'rel_selfattn'
+        use_cnn_module: False
+        macaron_style: False
+        use_dynamic_chunk: False
+        use_dynamic_left_chunk: False
+        static_chunk_size: -1
+    lcs_encoder: !new:dlm_an.transformer.encoder.ConformerEncoder
+        input_size: !ref <lcs_input_size>
+        output_size: 384
+        attention_heads: 6
+        linear_units: 1536
+        num_blocks: 4
+        dropout_rate: 0.1
+        positional_dropout_rate: 0.1
+        attention_dropout_rate: 0.0
+        normalize_before: True
+        input_layer: 'linear'
+        pos_enc_layer_type: 'rel_pos_espnet'
+        selfattention_layer_type: 'rel_selfattn'
+        use_cnn_module: False
+        macaron_style: False
+        use_dynamic_chunk: False
+        use_dynamic_left_chunk: False
+        static_chunk_size: -1
+    lm: !new:dlm_an.model.dlm.encoder.RotaryEncoder
+        input_dim: !ref <lm_input_dim>
+        embed_dim: !ref <lm_output_dim>
+        hidden_dim: 3072
+        num_heads: 12
+        num_layers: 16
+        dropout_rate: 0.1
+    duration_predictor: !new:dlm_an.model.dlm.duration_predictor.FlowMatchingTotalDurationPredictor
+        input_dim: !ref <dp_input_size>
+        global_cond_dim: 0
+        embed_dim: 192
+        num_heads: 3
+        num_layers: 4
+        dropout_rate: 0.1
+        log_scale: false

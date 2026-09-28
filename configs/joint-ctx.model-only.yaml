@@ -1,0 +1,94 @@
+# Model-only architecture for the joint VQ and acoustic flow checkpoint.
+sample_rate: 24000
+hop_size: 480
+feat_dim: 80
+codebook_size: 1024
+ssl_dim: 1024
+spk_embed_dim: 256
+flow_embed_dim: 512
+ctc_dim: 384
+ctc_vocab_size: 41
+
+quantizer: !new:dlm_an.model.ssl_quant.vq_joint_ctx.SslVectorQuantizerJointCtx
+    ssl_extractor: !new:dlm_an.model.ssl_wrapper.wavlm_extractor.WavLMExtractor
+        model_name: microsoft/wavlm-large
+        layer: 22
+        normalize_wav: True
+        padding: False
+    ssl_dim: !ref <ssl_dim>
+    codebook_size: !ref <codebook_size>
+    codebook_dim: 512
+    num_resblocks: 2
+    resblock_dim: 512
+    reconstruction_weight: 2.0
+    commitment_weight: 1.0
+    decay: 0.99
+    spk_embed_dim: !ref <spk_embed_dim>
+    flow: !ref <flow>
+    flow_weight: 2.0
+    duration_predictor: !ref <duration_predictor>
+    ctc_encoder: !ref <ctc_encoder>
+    ctc_vocab_size: !ref <ctc_vocab_size>
+    ctc_target_key: text_token
+    ctc_deduplicate: true
+    ctc_weight: 0.5
+
+ctc_encoder: !new:dlm_an.transformer.encoder.ConformerEncoder
+    input_size: !ref <ctc_dim>
+    output_size: !ref <ctc_dim>
+    attention_heads: 6
+    linear_units: 1536
+    num_blocks: 12
+    dropout_rate: 0.1
+    positional_dropout_rate: 0.1
+    attention_dropout_rate: 0.1
+    normalize_before: True
+    input_layer: linear
+    pos_enc_layer_type: rel_pos_espnet
+    selfattention_layer_type: rel_selfattn
+    use_cnn_module: False
+    macaron_style: False
+    static_chunk_size: -1
+
+duration_predictor: !new:dlm_an.model.flow.duration_predictor.FlowMatchingDurationPredictor
+    cond_dim: !ref <ssl_dim>
+    embed_dim: 256
+    num_heads: 4
+    num_layers: 6
+    dropout_rate: 0.1
+    log_scale: false
+
+flow: !new:dlm_an.model.dit.ctx_dit_speech_encoder.CtxDiTSpeechEncoder
+    cond_dim: !ref <ssl_dim>
+    spk_dim: !ref <spk_embed_dim>
+    output_dim: !ref <feat_dim>
+    embed_dim: !ref <flow_embed_dim>
+    num_heads: 8
+    num_layers: 12
+    postnet_mult: 2
+    postnet_dim: 128
+    dropout_rate: 0.1
+    cond_cfg_rate: 0.15
+    spk_cfg_rate: 0.15
+
+hift: !new:dlm_an.model.hift.generator.HiFTGenerator
+    in_channels: 80
+    base_channels: 512
+    nb_harmonics: 8
+    sampling_rate: !ref <sample_rate>
+    nsf_alpha: 0.1
+    nsf_sigma: 0.003
+    nsf_voiced_threshold: 10
+    upsample_rates: [8, 5, 3]
+    upsample_kernel_sizes: [16, 11, 7]
+    istft_params: {n_fft: 16, hop_len: 4}
+    resblock_kernel_sizes: [3, 7, 11]
+    resblock_dilation_sizes: [[1, 3, 5], [1, 3, 5], [1, 3, 5]]
+    source_resblock_kernel_sizes: [7, 7, 11]
+    source_resblock_dilation_sizes: [[1, 3, 5], [1, 3, 5], [1, 3, 5]]
+    lrelu_slope: 0.1
+    audio_limit: 0.99
+    f0_predictor: !new:dlm_an.model.hift.f0_predictor.ConvRNNF0Predictor
+        num_class: 1
+        in_channels: 80
+        cond_channels: 512
